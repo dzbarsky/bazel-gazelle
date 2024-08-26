@@ -367,27 +367,9 @@ func resolveFileInfo(wc *walkConfig, dir, rel string, ent fs.DirEntry) fs.DirEnt
 func buildTrie(c *config.Config, isBazelIgnored isIgnoredFunc) (*pathTrie, error) {
 	trie := &pathTrie{}
 
-	// TODO: parallelize
-	err := filepath.WalkDir(c.RepoRoot, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Ignore the root directory itself.
-		if c.RepoRoot == p {
-			return nil
-		}
-
-		rel, err := filepath.Rel(c.RepoRoot, p)
-		if err != nil {
-			return err
-		}
-
+	err := walkDir(c.RepoRoot, "", func(rel string, d fs.DirEntry) error {
 		if isBazelIgnored(rel) {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
+			return walkSkipDir
 		}
 
 		trie.Put(rel, &d)
@@ -395,4 +377,34 @@ func buildTrie(c *config.Config, isBazelIgnored isIgnoredFunc) (*pathTrie, error
 	})
 
 	return trie, err
+}
+
+var walkSkipDir error = fs.SkipDir
+
+type walkDirFunc func(rel string, d fs.DirEntry) error
+
+// walkDir recursively descends path, calling walkDirFn.
+func walkDir(root, rel string, walkDirFn walkDirFunc) error {
+	dirs, err := os.ReadDir(filepath.Join(root, rel))
+	if err != nil {
+		return err
+	}
+
+	for _, d1 := range dirs {
+		path1 := filepath.Join(rel, d1.Name())
+		if err := walkDirFn(path1, d1); err != nil {
+			if err == walkSkipDir {
+				continue
+			}
+			return err
+		}
+
+		if d1.IsDir() {
+			// TODO: parallelize
+			if err := walkDir(root, path1, walkDirFn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

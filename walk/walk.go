@@ -23,6 +23,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -122,24 +123,30 @@ func Walk(c *config.Config, cexts []config.Configurer, dirs []string, mode Mode,
 		log.Printf("error loading .bazelignore: %v", err)
 	}
 
-	visit(c, cexts, isBazelIgnored, knownDirectives, updateRels, wf, c.RepoRoot, "", false)
+	trie, err := buildTrie(c, isBazelIgnored)
+	if err != nil {
+		log.Fatalf("error walking the file system: %v\n", err)
+	}
+
+	visit(c, cexts, knownDirectives, updateRels, trie, wf, c.RepoRoot, "", false)
 }
 
-func visit(c *config.Config, cexts []config.Configurer, isBazelIgnored isIgnoredFunc, knownDirectives map[string]bool, updateRels *UpdateFilter, wf WalkFunc, dir, rel string, updateParent bool) {
-	if isBazelIgnored(rel) {
-		return
-	}
-
+func visit(c *config.Config, cexts []config.Configurer, knownDirectives map[string]bool, updateRels *UpdateFilter, trie *pathTrie, wf WalkFunc, dir, rel string, updateParent bool) {
 	haveError := false
 
-	// TODO: OPT: ReadDir stats all the files, which is slow. We just care about
-	// names and modes, so we should use something like
-	// golang.org/x/tools/internal/fastwalk to speed this up.
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		log.Print(err)
+	node := trie.Get(rel)
+	if node == nil {
 		return
 	}
+
+	ents := make([]fs.DirEntry, 0, len(node.children))
+	for _, node := range node.children {
+		ents = append(ents, *node.entry)
+	}
+
+	sort.SliceStable(ents, func(i, j int) bool {
+		return ents[i].Name() < ents[j].Name()
+	})
 
 	f, err := loadBuildFile(c, rel, dir, ents)
 	if err != nil {
@@ -162,7 +169,7 @@ func visit(c *config.Config, cexts []config.Configurer, isBazelIgnored isIgnored
 	var subdirs, regularFiles []string
 	for _, ent := range ents {
 		base := ent.Name()
-		if isBazelIgnored(path.Join(rel, base)) || wc.isExcluded(rel, base) {
+		if wc.isExcluded(rel, base) {
 			continue
 		}
 		ent := resolveFileInfo(wc, dir, rel, ent)
@@ -179,7 +186,7 @@ func visit(c *config.Config, cexts []config.Configurer, isBazelIgnored isIgnored
 	shouldUpdate := updateRels.shouldUpdate(rel, updateParent)
 	for _, sub := range subdirs {
 		if subRel := path.Join(rel, sub); updateRels.shouldVisit(subRel, shouldUpdate) {
-			visit(c, cexts, isBazelIgnored, knownDirectives, updateRels, wf, filepath.Join(dir, sub), subRel, shouldUpdate)
+			visit(c, cexts, knownDirectives, updateRels, trie, wf, filepath.Join(dir, sub), subRel, shouldUpdate)
 		}
 	}
 
@@ -355,4 +362,37 @@ func resolveFileInfo(wc *walkConfig, dir, rel string, ent fs.DirEntry) fs.DirEnt
 		return nil
 	}
 	return fs.FileInfoToDirEntry(fi)
+}
+
+func buildTrie(c *config.Config, isBazelIgnored isIgnoredFunc) (*pathTrie, error) {
+	trie := &pathTrie{}
+
+	// TODO: parallelize
+	err := filepath.WalkDir(c.RepoRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Ignore the root directory itself.
+		if c.RepoRoot == p {
+			return nil
+		}
+
+		rel, err := filepath.Rel(c.RepoRoot, p)
+		if err != nil {
+			return err
+		}
+
+		if isBazelIgnored(rel) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		trie.Put(rel, &d)
+		return nil
+	})
+
+	return trie, err
 }

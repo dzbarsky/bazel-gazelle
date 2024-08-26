@@ -25,9 +25,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	"golang.org/x/sync/errgroup"
 )
 
 // Mode determines which directories Walk visits and which directories
@@ -186,7 +188,7 @@ func visit(c *config.Config, cexts []config.Configurer, knownDirectives map[stri
 	shouldUpdate := updateRels.shouldUpdate(rel, updateParent)
 	for _, sub := range subdirs {
 		if subRel := path.Join(rel, sub); updateRels.shouldVisit(subRel, shouldUpdate) {
-			visit(c, cexts, knownDirectives, updateRels, trie, wf, filepath.Join(dir, sub), subRel, shouldUpdate)
+			visit(c, cexts, knownDirectives, updateRels, trie, wf, path.Join(dir, sub), subRel, shouldUpdate)
 		}
 	}
 
@@ -366,17 +368,25 @@ func resolveFileInfo(wc *walkConfig, dir, rel string, ent fs.DirEntry) fs.DirEnt
 
 func buildTrie(c *config.Config, isBazelIgnored isIgnoredFunc) (*pathTrie, error) {
 	trie := &pathTrie{}
+	mu := sync.Mutex{}
 
-	err := walkDir(c.RepoRoot, "", func(rel string, d fs.DirEntry) error {
-		if isBazelIgnored(rel) {
-			return walkSkipDir
-		}
+	eg := errgroup.Group{}
+	eg.SetLimit(100)
+	eg.Go(func() error {
+		return walkDir(c.RepoRoot, "", &eg, func(rel string, d fs.DirEntry) error {
+			if isBazelIgnored(rel) {
+				return walkSkipDir
+			}
 
-		trie.Put(rel, &d)
-		return nil
+			mu.Lock()
+			defer mu.Unlock()
+
+			trie.Put(rel, &d)
+			return nil
+		})
 	})
 
-	return trie, err
+	return trie, eg.Wait()
 }
 
 var walkSkipDir error = fs.SkipDir
@@ -384,14 +394,14 @@ var walkSkipDir error = fs.SkipDir
 type walkDirFunc func(rel string, d fs.DirEntry) error
 
 // walkDir recursively descends path, calling walkDirFn.
-func walkDir(root, rel string, walkDirFn walkDirFunc) error {
+func walkDir(root, rel string, eg *errgroup.Group, walkDirFn walkDirFunc) error {
 	dirs, err := os.ReadDir(filepath.Join(root, rel))
 	if err != nil {
 		return err
 	}
 
 	for _, d1 := range dirs {
-		path1 := filepath.Join(rel, d1.Name())
+		path1 := filepath.ToSlash(path.Join(rel, d1.Name()))
 		if err := walkDirFn(path1, d1); err != nil {
 			if err == walkSkipDir {
 				continue
@@ -400,10 +410,9 @@ func walkDir(root, rel string, walkDirFn walkDirFunc) error {
 		}
 
 		if d1.IsDir() {
-			// TODO: parallelize
-			if err := walkDir(root, path1, walkDirFn); err != nil {
-				return err
-			}
+			eg.Go(func() error {
+				return walkDir(root, path1, eg, walkDirFn)
+			})
 		}
 	}
 	return nil

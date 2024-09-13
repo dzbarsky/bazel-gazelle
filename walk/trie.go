@@ -43,26 +43,12 @@ func (t *pathTrie) Get(key string) *pathTrie {
 	return node
 }
 
-func (t *pathTrie) Put(key string, entry *fs.DirEntry) bool {
-	node := t
-	for part, i := pathSegmenter(key, 0); part != ""; part, i = pathSegmenter(key, i) {
-		child := node.children[part]
-		if child == nil {
-			if node.children == nil {
-				node.children = map[string]*pathTrie{}
-			}
-
-			var child *pathTrie
-			if i < 0 {
-				child = &pathTrie{children: nil, entry: entry}
-			} else {
-				child = &pathTrie{}
-			}
-
-			node.children[part] = child
-		}
-		node = child
+func (t *pathTrie) AddChild(entry fs.DirEntry) *pathTrie {
+	if t.children == nil {
+		t.children = map[string]*pathTrie{}
 	}
 
-	return true
+	child := &pathTrie{entry: &entry}
+	t.children[entry.Name()] = child
+	return child
 }

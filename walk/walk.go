@@ -401,7 +401,14 @@ func walkDir(root, rel string, eg *errgroup.Group, walkDirFn walkDirFunc) error 
 	}
 
 	for _, d1 := range dirs {
-		path1 := path.Join(rel, d1.Name())
+		name1 := d1.Name()
+
+		// Ignore .git and empty names
+		if name1 == "" || name1 == ".git" {
+			continue
+		}
+
+		path1 := path.Join(rel, name1)
 		if err := walkDirFn(path1, d1); err != nil {
 			if err == walkSkipDir {
 				continue

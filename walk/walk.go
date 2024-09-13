@@ -135,13 +135,8 @@ func Walk(c *config.Config, cexts []config.Configurer, dirs []string, mode Mode,
 func visit(c *config.Config, cexts []config.Configurer, knownDirectives map[string]bool, updateRels *UpdateFilter, trie *pathTrie, wf WalkFunc, dir, rel string, updateParent bool) {
 	haveError := false
 
-	node := trie.Get(rel)
-	if node == nil {
-		return
-	}
-
-	ents := make([]fs.DirEntry, 0, len(node.children))
-	for _, node := range node.children {
+	ents := make([]fs.DirEntry, 0, len(trie.children))
+	for _, node := range trie.children {
 		ents = append(ents, *node.entry)
 	}
 
@@ -187,7 +182,7 @@ func visit(c *config.Config, cexts []config.Configurer, knownDirectives map[stri
 	shouldUpdate := updateRels.shouldUpdate(rel, updateParent)
 	for _, sub := range subdirs {
 		if subRel := path.Join(rel, sub); updateRels.shouldVisit(subRel, shouldUpdate) {
-			visit(c, cexts, knownDirectives, updateRels, trie, wf, path.Join(dir, sub), subRel, shouldUpdate)
+			visit(c, cexts, knownDirectives, updateRels, trie.children[sub], wf, path.Join(dir, sub), subRel, shouldUpdate)
 		}
 	}
 

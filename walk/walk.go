@@ -374,25 +374,25 @@ func buildTrie(c *config.Config, isIgnored isIgnoredFunc) (*pathTrie, error) {
 
 // walkDir recursively descends path, calling walkDirFn.
 func walkDir(root, rel string, eg *errgroup.Group, isIgnored isIgnoredFunc, trie *pathTrie) error {
-	dirs, err := os.ReadDir(path.Join(root, rel))
+	entries, err := os.ReadDir(path.Join(root, rel))
 	if err != nil {
 		return err
 	}
 
-	for _, d1 := range dirs {
-		name1 := d1.Name()
-		path1 := path.Join(rel, name1)
+	for _, entry := range entries {
+		entryName := entry.Name()
+		entryPath := path.Join(rel, entryName)
 
 		// Ignore .git, empty names and ignored paths
-		if name1 == "" || name1 == ".git" || isIgnored(path1) {
+		if entryName == "" || entryName == ".git" || isIgnored(entryPath) {
 			continue
 		}
 
-		childTrie := trie.AddChild(d1)
+		childTrie := trie.AddChild(entry)
 
-		if d1.IsDir() {
+		if entry.IsDir() {
 			eg.Go(func() error {
-				return walkDir(root, path1, eg, isIgnored, childTrie)
+				return walkDir(root, entryPath, eg, isIgnored, childTrie)
 			})
 		}
 	}

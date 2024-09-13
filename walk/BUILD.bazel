@@ -4,7 +4,6 @@ go_library(
     name = "walk",
     srcs = [
         "config.go",
-        "trie.go",
         "walk.go",
     ],
     importpath = "github.com/bazelbuild/bazel-gazelle/walk",
@@ -41,7 +40,6 @@ filegroup(
         "BUILD.bazel",
         "config.go",
         "config_test.go",
-        "trie.go",
         "walk.go",
         "walk_test.go",
     ],

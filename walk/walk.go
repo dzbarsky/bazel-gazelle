@@ -360,8 +360,20 @@ func resolveFileInfo(wc *walkConfig, dir, rel string, ent fs.DirEntry) fs.DirEnt
 	return fs.FileInfoToDirEntry(fi)
 }
 
+type pathTrie struct {
+	children map[string]*pathTrie
+	entry    *fs.DirEntry
+}
+
+// Basic factory method to ensure the entry is properly copied
+func newTrie(entry fs.DirEntry) *pathTrie {
+	return &pathTrie{entry: &entry}
+}
+
 func buildTrie(c *config.Config, isIgnored isIgnoredFunc) (*pathTrie, error) {
-	trie := &pathTrie{}
+	trie := &pathTrie{
+		children: map[string]*pathTrie{},
+	}
 
 	eg := errgroup.Group{}
 	eg.SetLimit(100)
@@ -388,11 +400,13 @@ func walkDir(root, rel string, eg *errgroup.Group, isIgnored isIgnoredFunc, trie
 			continue
 		}
 
-		childTrie := trie.AddChild(entry)
+		entryTrie := newTrie(entry)
+		trie.children[entry.Name()] = entryTrie
 
 		if entry.IsDir() {
+			entryTrie.children = map[string]*pathTrie{}
 			eg.Go(func() error {
-				return walkDir(root, entryPath, eg, isIgnored, childTrie)
+				return walkDir(root, entryPath, eg, isIgnored, entryTrie)
 			})
 		}
 	}

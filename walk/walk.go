@@ -395,13 +395,13 @@ type walkDirFunc func(rel string, d fs.DirEntry) error
 
 // walkDir recursively descends path, calling walkDirFn.
 func walkDir(root, rel string, eg *errgroup.Group, walkDirFn walkDirFunc) error {
-	dirs, err := os.ReadDir(filepath.Join(root, rel))
+	dirs, err := os.ReadDir(path.Join(root, rel))
 	if err != nil {
 		return err
 	}
 
 	for _, d1 := range dirs {
-		path1 := filepath.ToSlash(path.Join(rel, d1.Name()))
+		path1 := path.Join(rel, d1.Name())
 		if err := walkDirFn(path1, d1); err != nil {
 			if err == walkSkipDir {
 				continue

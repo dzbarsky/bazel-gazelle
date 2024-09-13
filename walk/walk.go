@@ -366,35 +366,27 @@ func resolveFileInfo(wc *walkConfig, dir, rel string, ent fs.DirEntry) fs.DirEnt
 	return fs.FileInfoToDirEntry(fi)
 }
 
-func buildTrie(c *config.Config, isBazelIgnored isIgnoredFunc) (*pathTrie, error) {
+func buildTrie(c *config.Config, isIgnored isIgnoredFunc) (*pathTrie, error) {
 	trie := &pathTrie{}
 	mu := sync.Mutex{}
 
 	eg := errgroup.Group{}
 	eg.SetLimit(100)
 	eg.Go(func() error {
-		return walkDir(c.RepoRoot, "", &eg, func(rel string, d fs.DirEntry) error {
-			if isBazelIgnored(rel) {
-				return walkSkipDir
-			}
-
+		return walkDir(c.RepoRoot, "", &eg, isIgnored, func(rel string, d fs.DirEntry) {
 			mu.Lock()
 			defer mu.Unlock()
-
 			trie.Put(rel, &d)
-			return nil
 		})
 	})
 
 	return trie, eg.Wait()
 }
 
-var walkSkipDir error = fs.SkipDir
-
-type walkDirFunc func(rel string, d fs.DirEntry) error
+type walkDirFunc func(rel string, d fs.DirEntry)
 
 // walkDir recursively descends path, calling walkDirFn.
-func walkDir(root, rel string, eg *errgroup.Group, walkDirFn walkDirFunc) error {
+func walkDir(root, rel string, eg *errgroup.Group, isIgnored isIgnoredFunc, walkDirFn walkDirFunc) error {
 	dirs, err := os.ReadDir(path.Join(root, rel))
 	if err != nil {
 		return err
@@ -402,23 +394,18 @@ func walkDir(root, rel string, eg *errgroup.Group, walkDirFn walkDirFunc) error 
 
 	for _, d1 := range dirs {
 		name1 := d1.Name()
+		path1 := path.Join(rel, name1)
 
-		// Ignore .git and empty names
-		if name1 == "" || name1 == ".git" {
+		// Ignore .git, empty names and ignored paths
+		if name1 == "" || name1 == ".git" || isIgnored(path1) {
 			continue
 		}
 
-		path1 := path.Join(rel, name1)
-		if err := walkDirFn(path1, d1); err != nil {
-			if err == walkSkipDir {
-				continue
-			}
-			return err
-		}
+		walkDirFn(path1, d1)
 
 		if d1.IsDir() {
 			eg.Go(func() error {
-				return walkDir(root, path1, eg, walkDirFn)
+				return walkDir(root, path1, eg, isIgnored, walkDirFn)
 			})
 		}
 	}

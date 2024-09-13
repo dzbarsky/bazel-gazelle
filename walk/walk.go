@@ -386,7 +386,7 @@ func buildTrie(c *config.Config, isIgnored isIgnoredFunc) (*pathTrie, error) {
 
 // walkDir recursively descends path, calling walkDirFn.
 func walkDir(root, rel string, eg *errgroup.Group, isIgnored isIgnoredFunc, trie *pathTrie) error {
-	entries, err := os.ReadDir(path.Join(root, rel))
+	entries, err := readDir(path.Join(root, rel))
 	if err != nil {
 		return err
 	}

@@ -132,5 +132,8 @@ GO_REPOSITORY_TOOLS_SRCS = [
     Label("//tools/releaser:main.go"),
     Label("//walk:BUILD.bazel"),
     Label("//walk:config.go"),
+    Label("//walk:read_dir.go"),
+    Label("//walk:read_dir_darwin.go"),
     Label("//walk:walk.go"),
+    Label("//walk:zsyscall_darwin.go"),
 ]
